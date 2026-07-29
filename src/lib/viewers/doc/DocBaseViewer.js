@@ -27,6 +27,7 @@ import {
     CLASS_IS_SCROLLABLE,
     DISCOVERABILITY_ATTRIBUTE,
     DOCUMENT_FTUX_CURSOR_SEEN_KEY,
+    FILE_OPTION_FILE_VERSION_ID,
     PERMISSION_DOWNLOAD,
     PRELOAD_REP_NAME,
     PRELOAD_PAGED_REP_NAME,
@@ -39,6 +40,7 @@ import {
     getMidpoint,
     getPreloadImageRequestPromises,
     getPreloadImageRequestPromisesByBatch,
+    getProp,
 } from '../../util';
 import { checkPermission, getRepresentation } from '../../file';
 import { ICON_PRINT_CHECKMARK } from '../../icons';
@@ -820,6 +822,19 @@ class DocBaseViewer extends BaseViewer {
     }
 
     /**
+     * Gets the key used to store the current page in the page map. Loads of a
+     * non-current file version get a version-scoped key so that side-by-side
+     * version comparison panes of the same file don't clobber each other's state.
+     *
+     * @return {string} Page map key
+     */
+    getPageCacheKey() {
+        const { file } = this.options;
+        const fileVersionId = getProp(this.options, `fileOptions.${file.id}.${FILE_OPTION_FILE_VERSION_ID}`);
+        return fileVersionId ? `${file.id}:${fileVersionId}` : file.id;
+    }
+
+    /**
      * Gets the cached current page.
      *
      * @return {number} Current page
@@ -829,7 +844,7 @@ class DocBaseViewer extends BaseViewer {
 
         if (this.cache.has(CURRENT_PAGE_MAP_KEY)) {
             const currentPageMap = this.cache.get(CURRENT_PAGE_MAP_KEY);
-            page = currentPageMap[this.options.file.id] || page;
+            page = currentPageMap[this.getPageCacheKey()] || page;
         }
 
         return page;
@@ -848,7 +863,7 @@ class DocBaseViewer extends BaseViewer {
             currentPageMap = this.cache.get(CURRENT_PAGE_MAP_KEY);
         }
 
-        currentPageMap[this.options.file.id] = page;
+        currentPageMap[this.getPageCacheKey()] = page;
         this.cache.set(CURRENT_PAGE_MAP_KEY, currentPageMap, true /* useLocalStorage */);
     }
 
@@ -1529,6 +1544,9 @@ class DocBaseViewer extends BaseViewer {
         const isAnnotationsMode = this.currentAnnotatorViewMode === ANNOTATOR_VIEW_MODES.ANNOTATIONS;
         const canRotate = this.featureEnabled('rotate.enabled');
         const canGallery = !this.isMobile && this.galleryController.canRender(this.pdfViewer.pagesCount);
+        // Hide the compare entry point when this viewer is itself rendering a
+        // non-current version (e.g. inside a comparison pane)
+        const canCompare = !getProp(this.options, `fileOptions.${this.options.file.id}.${FILE_OPTION_FILE_VERSION_ID}`);
 
         this.controls.render(
             <DocControls
@@ -1545,6 +1563,7 @@ class DocBaseViewer extends BaseViewer {
                 onAnnotationColorChange={this.handleAnnotationColorChange}
                 onAnnotationModeClick={this.handleAnnotationControlsClick}
                 onAnnotationModeEscape={this.handleAnnotationControlsEscape}
+                onCompareVersionsToggle={canCompare ? this.handleCompareVersionsToggle : undefined}
                 onFindBarToggle={!this.isFindDisabled() ? this.toggleFindBar : undefined}
                 onFullscreenToggle={this.toggleFullscreen}
                 onGalleryToggle={canGallery ? this.galleryController.toggle : undefined}
@@ -1783,6 +1802,16 @@ class DocBaseViewer extends BaseViewer {
             this.pageTracker.handleViewerPageChange(pageNumber);
         }
     }
+
+    /**
+     * Notifies Preview to toggle the version comparison surface.
+     *
+     * @private
+     * @return {void}
+     */
+    handleCompareVersionsToggle = () => {
+        this.emit(VIEWER_EVENT.compareVersions);
+    };
 
     /**
      * Handler for 'keydown' event on the bp-doc element. These conditions cannot be managed in onKeydown, as

@@ -1,0 +1,302 @@
+<html>
+    <head>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+        <link rel="stylesheet" href="./preview.css" />
+        <script src="https://cdn01.boxcdn.net/polyfills/core-js/2.5.3/core.min.js"></script>
+        <script src="./preview.js"></script>
+
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+                font-family: sans-serif;
+            }
+
+            .setters-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: flex-end;
+                padding: 12px 20px;
+                font-size: 75%;
+                border-bottom: 1px solid #e8e8e8;
+            }
+
+            .setters-container button,
+            .setters-container input,
+            .setters-container select {
+                padding: 5px;
+            }
+
+            .field {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .field .input-display {
+                max-width: 220px;
+                overflow: hidden;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+
+            .panes {
+                display: flex;
+                width: 100vw;
+                height: calc(100vh - 90px);
+            }
+
+            .pane {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                flex: 1 1 50%;
+                min-width: 0;
+            }
+
+            .pane + .pane {
+                border-left: 1px solid #d5d5d5;
+            }
+
+            .pane-chrome {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                justify-content: space-between;
+                height: 32px;
+                padding: 0 12px;
+                font-size: 12px;
+                color: #4e4e4e;
+                background: #f4f4f4;
+                border-bottom: 1px solid #e8e8e8;
+            }
+
+            .pane-content {
+                position: relative;
+                flex: 1 1 auto;
+                min-height: 0;
+            }
+
+            .hidden {
+                display: none !important;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="setters-container">
+            <div class="field">
+                <div class="input-display">Token: <span id="token-display"></span></div>
+                <input id="token-set" placeholder="Enter token" />
+            </div>
+            <button onClick="setProperty('token')">Set token</button>
+
+            <div class="field">
+                <div class="input-display">File ID: <span id="fileid-display"></span></div>
+                <input id="fileid-set" placeholder="Enter file ID" />
+            </div>
+            <button onClick="setProperty('fileid')">Set file ID</button>
+
+            <div class="field">
+                <div class="input-display">API host: <span id="apihost-display"></span></div>
+                <input id="apihost-set" placeholder="https://api.box.com" />
+            </div>
+            <button onClick="setProperty('apihost')">Set API host</button>
+
+            <button onClick="fetchVersions()">Fetch versions</button>
+
+            <div class="field">
+                <div>Compare version</div>
+                <select id="version-select">
+                    <option value="">— fetch versions first —</option>
+                </select>
+            </div>
+
+            <label><input type="checkbox" id="text-diff-mode" /> Text diff mode (text/md files)</label>
+
+            <button onClick="loadComparison()">Load comparison</button>
+            <button onClick="closeComparison()">Close compare pane</button>
+            <span id="status"></span>
+        </div>
+
+        <div class="panes">
+            <div class="pane">
+                <div class="pane-content main-preview-container"></div>
+            </div>
+            <div class="pane hidden" id="compare-pane">
+                <div class="pane-chrome">
+                    <span id="compare-label">No version selected</span>
+                    <button onClick="closeComparison()">Close</button>
+                </div>
+                <div class="pane-content compare-preview-container"></div>
+            </div>
+        </div>
+
+        <script>
+            /* global Box */
+            var mainPreview = new Box.Preview();
+            var comparePreview = new Box.Preview();
+
+            function setProperty(selector) {
+                var inputValue = document.querySelector('#' + selector + '-set');
+                var value = (inputValue && inputValue.value) || localStorage.getItem(selector);
+
+                if (!value) {
+                    return;
+                }
+
+                document.querySelector('#' + selector + '-display').textContent = value;
+                localStorage.setItem(selector, value);
+            }
+
+            function setStatus(message) {
+                document.getElementById('status').textContent = message;
+            }
+
+            function getAuth() {
+                return {
+                    token: localStorage.getItem('token'),
+                    fileId: localStorage.getItem('fileid'),
+                    apiHost: localStorage.getItem('apihost') || 'https://api.box.com',
+                };
+            }
+
+            function fetchVersions() {
+                var auth = getAuth();
+                if (!auth.token || !auth.fileId) {
+                    setStatus('Set token and file ID first');
+                    return;
+                }
+
+                setStatus('Fetching versions...');
+
+                fetch(
+                    auth.apiHost.replace(/\/$/, '') +
+                        '/2.0/files/' +
+                        encodeURIComponent(auth.fileId) +
+                        '/versions?limit=100&fields=id,version_number,modified_at,name,size',
+                    { headers: { Authorization: 'Bearer ' + auth.token } },
+                )
+                    .then(function(response) {
+                        if (!response.ok) {
+                            throw new Error('Versions request failed: ' + response.status);
+                        }
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        var select = document.getElementById('version-select');
+                        select.innerHTML = '';
+
+                        if (!data.entries || !data.entries.length) {
+                            var emptyOption = document.createElement('option');
+                            emptyOption.value = '';
+                            emptyOption.textContent = '— no prior versions —';
+                            select.appendChild(emptyOption);
+                            setStatus('File has no prior versions');
+                            return;
+                        }
+
+                        data.entries.forEach(function(version) {
+                            var option = document.createElement('option');
+                            option.value = version.id;
+                            option.textContent =
+                                'v' + (version.version_number || '?') + ' — ' + (version.modified_at || version.id);
+                            select.appendChild(option);
+                        });
+
+                        setStatus('Loaded ' + data.entries.length + ' prior version(s)');
+                    })
+                    .catch(function(error) {
+                        setStatus(error.message);
+                    });
+            }
+
+            function loadMain(previewOptions) {
+                var auth = getAuth();
+                var options = previewOptions || {
+                    container: '.main-preview-container',
+                    enableThumbnailsSidebar: true,
+                    showDownload: true,
+                };
+                options.container = options.container || '.main-preview-container';
+                options.apiHost = options.apiHost || auth.apiHost;
+                mainPreview.show(auth.fileId, auth.token, options);
+            }
+
+            function loadComparison() {
+                var auth = getAuth();
+                if (!auth.token || !auth.fileId) {
+                    setStatus('Set token and file ID first');
+                    return;
+                }
+
+                var versionId = document.getElementById('version-select').value;
+                var isTextDiff = document.getElementById('text-diff-mode').checked;
+                var comparePane = document.getElementById('compare-pane');
+
+                if (!versionId) {
+                    setStatus('Pick a compare version (fetch versions first)');
+                    return;
+                }
+
+                if (isTextDiff) {
+                    // Text diff renders both versions inside the single main viewer
+                    comparePane.classList.add('hidden');
+                    comparePreview.hide();
+                    loadMain({
+                        container: '.main-preview-container',
+                        showDownload: true,
+                        viewers: {
+                            Text: { compareFileVersionId: versionId },
+                            Markdown: { compareFileVersionId: versionId },
+                        },
+                    });
+                    setStatus('Loaded text diff vs version ' + versionId);
+                    return;
+                }
+
+                // Side-by-side: current version left (full chrome), old version right (chromeless)
+                loadMain();
+
+                comparePane.classList.remove('hidden');
+
+                var selectEl = document.getElementById('version-select');
+                document.getElementById('compare-label').textContent =
+                    'Comparing: ' + selectEl.options[selectEl.selectedIndex].textContent;
+
+                var compareFileOptions = {};
+                compareFileOptions[auth.fileId] = { fileVersionId: versionId };
+
+                comparePreview.show(auth.fileId, auth.token, {
+                    container: '.compare-preview-container',
+                    header: 'none',
+                    useHotkeys: false,
+                    showDownload: false,
+                    apiHost: auth.apiHost,
+                    fileOptions: compareFileOptions,
+                });
+
+                setStatus('Comparing current vs version ' + versionId);
+            }
+
+            function closeComparison() {
+                document.getElementById('compare-pane').classList.add('hidden');
+                comparePreview.hide();
+                loadMain();
+                setStatus('');
+            }
+
+            // Restore saved values and load the main preview on page load
+            setProperty('token');
+            setProperty('fileid');
+            setProperty('apihost');
+
+            if (getAuth().token && getAuth().fileId) {
+                loadMain();
+            }
+        </script>
+    </body>
+</html>

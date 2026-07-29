@@ -12,6 +12,10 @@ import PreviewError from './PreviewError';
 import PreviewErrorViewer from './viewers/error/PreviewErrorViewer';
 import PreviewPerf from './PreviewPerf';
 import PreviewUI from './PreviewUI';
+import VersionCompareController, {
+    COMPARE_MODE_SPLIT,
+    COMPARE_MODE_TEXT,
+} from './versionCompare/VersionCompareController';
 import getTokens from './tokens';
 import Timer from './Timer';
 import {
@@ -43,6 +47,7 @@ import {
     ANNOTATOR_VIEW_MODES,
     API_HOST,
     APP_HOST,
+    CLASS_BOX_PREVIEW_CONTAINER,
     CLASS_NAVIGATION_VISIBILITY,
     ERROR_CODE_403_FORBIDDEN_BY_POLICY,
     PERMISSION_PREVIEW,
@@ -277,6 +282,11 @@ class Preview extends EventEmitter {
      * @return {void}
      */
     hide() {
+        // Tear down any open version comparison before the UI is cleaned up
+        if (this.versionCompareController) {
+            this.versionCompareController.close({ skipViewerReload: true });
+        }
+
         // Indicate preview is closed
         this.open = false;
 
@@ -669,6 +679,119 @@ class Preview extends EventEmitter {
     }
 
     /**
+     * Opens (or switches) the version comparison surface for the current file.
+     * Rendered documents get a side-by-side split with the selected prior
+     * version; text/markdown files reload into a source diff. Defaults to the
+     * most recent prior version when no version ID is given.
+     *
+     * @public
+     * @param {string} [versionId] - File version ID to compare against
+     * @return {void}
+     */
+    compareVersion(versionId) {
+        if (!this.open || !this.viewer || !this.viewer.loaded) {
+            return;
+        }
+
+        const viewerName = getProp(this.viewer, 'options.viewer.NAME');
+
+        let mode;
+        if (viewerName === 'Document' || viewerName === 'Presentation') {
+            mode = COMPARE_MODE_SPLIT;
+        } else if (viewerName === 'Text' || viewerName === 'Markdown') {
+            mode = COMPARE_MODE_TEXT;
+        } else {
+            this.ui.showNotification("Version comparison isn't available for this file type.");
+            return;
+        }
+
+        this.getVersionCompareController().open(mode, versionId);
+    }
+
+    /**
+     * Closes the version comparison surface if open.
+     *
+     * @public
+     * @return {void}
+     */
+    endCompare() {
+        if (this.versionCompareController) {
+            this.versionCompareController.close();
+        }
+    }
+
+    /**
+     * Toggle handler for the viewer controls compare button.
+     *
+     * @private
+     * @return {void}
+     */
+    handleCompareToggle() {
+        if (this.versionCompareController && this.versionCompareController.isActive) {
+            this.endCompare();
+        } else {
+            this.compareVersion();
+        }
+    }
+
+    /**
+     * Lazily creates the version compare controller. No comparison state or
+     * network activity exists until the feature is first activated.
+     *
+     * @private
+     * @return {VersionCompareController} Controller instance
+     */
+    getVersionCompareController() {
+        if (!this.versionCompareController) {
+            this.versionCompareController = new VersionCompareController({
+                api: this.api,
+                createPreview: () => new this.constructor(),
+                getContainerEl: () => this.container,
+                getFileId: () => this.file && this.file.id,
+                getOptions: () => this.options,
+                getRequestHeaders: () => this.getRequestHeaders(),
+                getToken: () => this.previewOptions.token,
+                onLayoutChange: () => this.resize(),
+                setTextCompareOption: (versionId, doReload) => this.setTextCompareOption(versionId, doReload),
+                showNotification: message => this.ui.showNotification(message),
+            });
+        }
+
+        return this.versionCompareController;
+    }
+
+    /**
+     * Sets or clears the text source-diff viewer option on both the parsed and
+     * raw options so it survives reloads, then reloads the viewer if requested.
+     *
+     * @private
+     * @param {string|null} versionId - File version ID to diff against, or null to clear
+     * @param {boolean} doReload - Whether to reload the viewer to apply the change
+     * @return {void}
+     */
+    setTextCompareOption(versionId, doReload) {
+        [this.options, this.previewOptions].forEach(options => {
+            if (!options) {
+                return;
+            }
+
+            const viewers = options.viewers || {};
+            ['Text', 'Markdown'].forEach(viewerName => {
+                if (versionId) {
+                    viewers[viewerName] = { ...viewers[viewerName], compareFileVersionId: versionId };
+                } else if (viewers[viewerName]) {
+                    delete viewers[viewerName].compareFileVersionId;
+                }
+            });
+            options.viewers = viewers;
+        });
+
+        if (doReload) {
+            this.reload(true);
+        }
+    }
+
+    /**
      * Updates the token Preview uses. Passed in parameter can either be a
      * string token or token generation function. See tokens.js.
      *
@@ -841,6 +964,12 @@ class Preview extends EventEmitter {
      * @return {void}
      */
     load(fileIdOrFile) {
+        // Tear down any open version comparison; the viewer is being rebuilt.
+        // Skip the viewer reload since this load re-parses options anyway.
+        if (this.versionCompareController) {
+            this.versionCompareController.close({ skipViewerReload: true });
+        }
+
         // Clean up any existing previews before loading
         this.destroy();
 
@@ -1516,6 +1645,13 @@ class Preview extends EventEmitter {
                 break;
             case VIEWER_EVENT.load:
                 this.finishLoading(data.data);
+                // Re-attach text-diff comparison chrome after the viewer rebuilds
+                if (this.versionCompareController) {
+                    this.versionCompareController.handlePreviewReloaded();
+                }
+                break;
+            case VIEWER_EVENT.compareVersions:
+                this.handleCompareToggle();
                 break;
             case VIEWER_EVENT.preload:
                 // Dismiss the global loading spinner once the preload thumbnail is visible
@@ -2212,6 +2348,15 @@ class Preview extends EventEmitter {
         // If keyboard shortcuts / hotkeys are disabled, ignore
         if (!this.options.useHotkeys) {
             return;
+        }
+
+        // Ignore key events originating inside a different Preview instance's container,
+        // e.g. a version comparison pane (nested inside this container or a sibling)
+        if (this.container && target instanceof Node && typeof target.closest === 'function') {
+            const nearestContainer = target.closest(`.${CLASS_BOX_PREVIEW_CONTAINER}`);
+            if (nearestContainer && nearestContainer !== this.container) {
+                return;
+            }
         }
 
         // Ignore key events when we are inside certain fields

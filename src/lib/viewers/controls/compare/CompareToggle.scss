@@ -1,0 +1,5 @@
+@import '../styles';
+
+.bp-CompareToggle {
+    @include bp-Control;
+}

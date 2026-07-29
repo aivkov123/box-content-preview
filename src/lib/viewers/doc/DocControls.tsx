@@ -1,5 +1,6 @@
 import React from 'react';
 import AnnotationsControls, { Props as AnnotationsControlsProps } from '../controls/annotations';
+import CompareToggle, { Props as CompareToggleProps } from '../controls/compare';
 import ControlsBar, { ControlsBarGroup } from '../controls/controls-bar';
 import DrawingControls, { Props as DrawingControlsProps } from '../controls/annotations/DrawingControls';
 import ExperiencesProvider, { Props as ExperiencesProviderProps } from '../controls/experiences';
@@ -12,6 +13,7 @@ import ThumbnailsToggle, { Props as ThumbnailsToggleProps } from '../controls/si
 import ZoomControls, { Props as ZoomControlsProps } from '../controls/zoom';
 
 export type Props = AnnotationsControlsProps &
+    CompareToggleProps &
     DrawingControlsProps &
     ExperiencesProviderProps &
     FindBarToggleProps &
@@ -36,6 +38,7 @@ export default function DocControls({
     onAnnotationColorChange,
     onAnnotationModeClick,
     onAnnotationModeEscape,
+    onCompareVersionsToggle,
     onFindBarToggle,
     onFullscreenToggle,
     onGalleryToggle,
@@ -86,6 +89,7 @@ export default function DocControls({
                     </>
                 )}
                 <ControlsBarGroup>
+                    {!isGalleryOpen && <CompareToggle onCompareVersionsToggle={onCompareVersionsToggle} />}
                     <GalleryToggle isGalleryOpen={isGalleryOpen} onGalleryToggle={onGalleryToggle} />
                     <FullscreenToggle onFullscreenToggle={onFullscreenToggle} />
                     {!isGalleryOpen && (

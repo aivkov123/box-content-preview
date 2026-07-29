@@ -1,10 +1,19 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 import Browser from '../../Browser';
 import Popup from '../../Popup';
 import TextBaseViewer from './TextBaseViewer';
+import TextDiff from './TextDiff';
 import { BROWSERS, CLASS_HIDDEN, CLASS_IS_SCROLLABLE, TEXT_STATIC_ASSETS_VERSION } from '../../constants';
 import { ICON_PRINT_CHECKMARK } from '../../icons';
 import { HIGHLIGHTTABLE_EXTENSIONS } from '../../extensions';
-import { openContentInsideIframe, createAssetUrlCreator, createStylesheet } from '../../util';
+import {
+    appendQueryParams,
+    openContentInsideIframe,
+    createAssetUrlCreator,
+    createStylesheet,
+    getProp,
+} from '../../util';
 import { VIEWER_EVENT } from '../../events';
 import './PlainText.scss';
 
@@ -29,8 +38,13 @@ class PlainTextViewer extends TextBaseViewer {
      * @return {void}
      */
     destroy() {
-        if (this.textEl) {
-            const downloadBtnEl = this.textEl.querySelector('.bp-btn-download');
+        if (this.diffRoot) {
+            this.diffRoot.unmount();
+            this.diffRoot = null;
+        }
+
+        if (this.containerEl) {
+            const downloadBtnEl = this.containerEl.querySelector('.bp-btn-download');
             if (downloadBtnEl) {
                 downloadBtnEl.removeEventListener('click', this.download.bind(this));
             }
@@ -84,6 +98,11 @@ class PlainTextViewer extends TextBaseViewer {
      * @return {void}
      */
     print() {
+        // Printing isn't supported while comparing versions
+        if (this.compareFileVersionId) {
+            return;
+        }
+
         if (!this.printReady) {
             this.preparePrint(this.getCSS().concat('preview.css'));
 
@@ -125,6 +144,15 @@ class PlainTextViewer extends TextBaseViewer {
 
         // Whether or not we truncated text shown due to performance issues
         this.truncated = false;
+
+        // When set, the viewer renders a side-by-side source diff of the current
+        // version against this file version instead of the regular text view
+        this.compareFileVersionId = this.getViewerOption('compareFileVersionId');
+        if (this.compareFileVersionId) {
+            this.diffEl = this.createViewer(document.createElement('div'));
+            this.diffEl.className = `bp-text bp-text-diff ${CLASS_IS_SCROLLABLE} ${CLASS_HIDDEN}`;
+            this.diffEl.tabIndex = '0';
+        }
 
         this.initPrint();
     }
@@ -193,6 +221,10 @@ class PlainTextViewer extends TextBaseViewer {
      * @return {Promise} promise to get text content
      */
     postLoad = () => {
+        if (this.compareFileVersionId) {
+            return this.postLoadCompare();
+        }
+
         const { representation, file } = this.options;
         const template = representation.content.url_template;
         const { extension, size } = file;
@@ -232,6 +264,106 @@ class PlainTextViewer extends TextBaseViewer {
             })
             .catch(this.handleAssetError);
     };
+
+    /**
+     * Loads the current version and the compared version's original content,
+     * then renders a side-by-side source diff.
+     *
+     * @private
+     * @return {Promise} promise to get both versions' text content
+     */
+    postLoadCompare = () => {
+        const { file } = this.options;
+
+        // Graceful "too large to compare" state - diffing truncated content is misleading
+        if (file.size > SIZE_LIMIT_BYTES) {
+            this.finishLoadingCompareUnavailable();
+            return Promise.resolve();
+        }
+
+        this.startLoadTimer();
+
+        const currentVersionId = getProp(file, 'file_version.id');
+        const requests = [currentVersionId, this.compareFileVersionId].map(fileVersionId => {
+            const headers = {};
+            let contentUrl;
+
+            const template = this.getVersionContentTemplate(fileVersionId);
+            if (this.featureEnabled('migrateAccessTokenToHeader')) {
+                contentUrl = this.createContentUrlV2(template);
+                Object.assign(headers, this.appendAuthHeader());
+            } else {
+                contentUrl = this.createContentUrlWithAuthParams(template);
+            }
+
+            return this.api.get(contentUrl, { headers, type: 'text' });
+        });
+
+        return Promise.all(requests)
+            .then(([currentText, compareText]) => {
+                if (this.isDestroyed()) {
+                    return;
+                }
+
+                this.finishLoadingCompare(currentText, compareText);
+            })
+            .catch(this.handleAssetError);
+    };
+
+    /**
+     * Builds an original-content URL template for a specific file version. The
+     * authenticated download URL serves a version's original content when the
+     * 'version' query param is present (same mechanism as the ORIGINAL rep).
+     *
+     * @private
+     * @param {string} [fileVersionId] - File version ID, omitted for the current version
+     * @return {string} URL template for the version's content
+     */
+    getVersionContentTemplate(fileVersionId) {
+        const queryParams = { preview: 'true' };
+        if (fileVersionId) {
+            queryParams.version = fileVersionId;
+        }
+
+        return appendQueryParams(this.options.file.authenticated_download_url, queryParams);
+    }
+
+    /**
+     * Renders the diff and finishes loading in compare mode.
+     *
+     * @private
+     * @param {string} currentText - Current version text
+     * @param {string} compareText - Compared version text
+     * @return {void}
+     */
+    finishLoadingCompare(currentText, compareText) {
+        if (!this.diffRoot) {
+            this.diffRoot = createRoot(this.diffEl);
+        }
+
+        this.diffRoot.render(<TextDiff compareText={compareText} currentText={currentText} />);
+
+        this.loadUI();
+        this.diffEl.classList.remove(CLASS_HIDDEN);
+
+        this.loaded = true;
+        this.emit(VIEWER_EVENT.load);
+    }
+
+    /**
+     * Finishes loading in compare mode with a message that the file is too
+     * large to compare, along with a download button.
+     *
+     * @private
+     * @return {void}
+     */
+    finishLoadingCompareUnavailable() {
+        this.showTruncatedDownloadButton(this.diffEl);
+        this.diffEl.classList.remove(CLASS_HIDDEN);
+
+        this.loaded = true;
+        this.emit(VIEWER_EVENT.load);
+    }
 
     /**
      * Loads highlight.js to highlight the file
@@ -336,9 +468,10 @@ class PlainTextViewer extends TextBaseViewer {
      * Shows notification that text was truncated along with download button.
      *
      * @private
+     * @param {HTMLElement} [targetEl] - Element to append the notification to, defaults to the text element
      * @return {void}
      */
-    showTruncatedDownloadButton() {
+    showTruncatedDownloadButton(targetEl = this.textEl) {
         const truncatedEl = document.createElement('div');
         truncatedEl.classList.add('bp-text-truncated');
 
@@ -351,7 +484,7 @@ class PlainTextViewer extends TextBaseViewer {
 
         truncatedEl.appendChild(truncatedTextEl);
         truncatedEl.appendChild(downloadBtnEl);
-        this.textEl.appendChild(truncatedEl);
+        targetEl.appendChild(truncatedEl);
 
         downloadBtnEl.addEventListener('click', this.download.bind(this));
     }

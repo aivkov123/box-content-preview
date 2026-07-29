@@ -1,0 +1,112 @@
+@import '../boxuiVariables';
+
+$bp-compare-bar-height: 40px;
+$bp-compare-border: #e2e6ea;
+
+// Split layout: constrain the main viewer to the left half and host the
+// comparison pane in the right half of the same .bp-container
+.bp-container.bp-has-compare {
+    > .bp {
+        right: 50%;
+    }
+
+    > .bp-compare-pane {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 50%;
+        display: flex;
+        flex-direction: column;
+        background-color: $ffive;
+        border-left: 1px solid $seesee;
+    }
+
+    // Offset below the Preview header when one is visible (e.g. dev harness)
+    > .bp-header-container:not(.bp-is-hidden) ~ .bp-compare-pane {
+        top: 48px;
+    }
+}
+
+.bp-compare-pane-bar {
+    flex: none;
+}
+
+.bp-compare-pane-content {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+// Text diff mode: bar floats over the top of the viewer area
+.bp-compare-textbar {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    z-index: 200;
+    transform: translateX(-50%);
+}
+
+.bp-VersionCompareBar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    height: $bp-compare-bar-height;
+    padding: 0 8px 0 12px;
+    background-color: $white;
+    border-bottom: 1px solid $bp-compare-border;
+
+    .bp-compare-textbar & {
+        border: 1px solid $bp-compare-border;
+        border-radius: 20px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, .12);
+    }
+}
+
+.bp-VersionCompareBar-stepper {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+}
+
+.bp-VersionCompareBar-label {
+    padding: 0 4px;
+    color: $twos;
+    font-weight: bold;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.bp-VersionCompareBar-subtitle {
+    overflow: hidden;
+    color: $downtown-grey;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.bp-VersionCompareBar-step,
+.bp-VersionCompareBar-close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: $twos;
+    background: transparent;
+    border: 0;
+    border-radius: 14px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        background-color: $ffive;
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: .35;
+    }
+}

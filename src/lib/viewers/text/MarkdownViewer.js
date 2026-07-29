@@ -52,6 +52,11 @@ class MarkdownViewer extends PlainTextViewer {
      * @return {void}
      */
     print() {
+        // Printing isn't supported while comparing versions
+        if (this.compareFileVersionId) {
+            return;
+        }
+
         if (!this.printReady) {
             this.preparePrint(this.getCSS().concat('preview.css'));
 
@@ -95,7 +100,12 @@ class MarkdownViewer extends PlainTextViewer {
             return;
         }
 
-        this.controls.render(<MarkdownControls onFullscreenToggle={this.toggleFullscreen} />);
+        this.controls.render(
+            <MarkdownControls
+                onCompareVersionsToggle={this.canCompareVersions() ? this.handleCompareVersionsToggle : undefined}
+                onFullscreenToggle={this.toggleFullscreen}
+            />,
+        );
     }
 
     /**

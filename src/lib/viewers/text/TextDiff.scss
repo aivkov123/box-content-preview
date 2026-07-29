@@ -1,0 +1,91 @@
+@import '../../boxuiVariables';
+
+$bp-TextDiff-added-bg: #e6ffec;
+$bp-TextDiff-added-gutter-bg: #ccffd8;
+$bp-TextDiff-removed-bg: #ffebe9;
+$bp-TextDiff-removed-gutter-bg: #ffd7d5;
+$bp-TextDiff-spacer-bg: #f6f8fa;
+$bp-TextDiff-spacer-stripe: #eaeef2;
+$bp-TextDiff-border: #d0d7de;
+
+.bp-text-diff {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    overflow: auto;
+    line-height: 1.5;
+    text-align: left;
+    background-color: $white;
+}
+
+.bp-TextDiff {
+    display: flex;
+    flex-direction: column;
+    min-width: 100%;
+    font-size: inherit;
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+}
+
+.bp-TextDiff-row {
+    display: flex;
+    flex: none;
+    align-items: stretch;
+}
+
+.bp-TextDiff-cell {
+    display: flex;
+    flex: 1 1 50%;
+    align-items: stretch;
+    min-width: 0;
+
+    &--right {
+        border-left: 1px solid $bp-TextDiff-border;
+    }
+
+    &--added {
+        background-color: $bp-TextDiff-added-bg;
+
+        .bp-TextDiff-lineNumber {
+            background-color: $bp-TextDiff-added-gutter-bg;
+        }
+    }
+
+    &--removed {
+        background-color: $bp-TextDiff-removed-bg;
+
+        .bp-TextDiff-lineNumber {
+            background-color: $bp-TextDiff-removed-gutter-bg;
+        }
+    }
+
+    &--spacer {
+        background: repeating-linear-gradient(45deg, $bp-TextDiff-spacer-bg, $bp-TextDiff-spacer-bg 6px, $bp-TextDiff-spacer-stripe 6px, $bp-TextDiff-spacer-stripe 12px);
+    }
+}
+
+.bp-TextDiff-lineNumber {
+    flex: none;
+    width: 48px;
+    padding-right: 10px;
+    color: $downtown-grey;
+    text-align: right;
+    user-select: none;
+}
+
+.bp-TextDiff-lineText {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+@media print {
+    .bp-text-diff {
+        position: static;
+        overflow: visible;
+    }
+}

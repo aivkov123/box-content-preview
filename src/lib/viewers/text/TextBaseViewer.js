@@ -2,8 +2,18 @@ import React from 'react';
 import BaseViewer from '../BaseViewer';
 import ControlsRoot from '../controls';
 import TextControls from './TextControls';
-import { CLASS_IS_PRINTABLE, CLASS_IS_SELECTABLE, PERMISSION_DOWNLOAD } from '../../constants';
+import {
+    CLASS_IS_PRINTABLE,
+    CLASS_IS_SELECTABLE,
+    FILE_OPTION_FILE_VERSION_ID,
+    PERMISSION_DOWNLOAD,
+} from '../../constants';
 import { checkPermission } from '../../file';
+import { getProp } from '../../util';
+import { VIEWER_EVENT } from '../../events';
+
+// Viewers that support the version comparison source diff
+const COMPARABLE_VIEWER_NAMES = ['Text', 'Markdown'];
 
 const ZOOM_DEFAULT = 1.0;
 const ZOOM_MAX = 10;
@@ -249,6 +259,33 @@ class TextBaseViewer extends BaseViewer {
     }
 
     /**
+     * Notifies Preview to toggle the version comparison surface.
+     *
+     * @protected
+     * @return {void}
+     */
+    handleCompareVersionsToggle = () => {
+        this.emit(VIEWER_EVENT.compareVersions);
+    };
+
+    /**
+     * Whether the compare entry point should show: only for text/markdown
+     * viewers that aren't already showing a diff or a non-current version.
+     *
+     * @protected
+     * @return {boolean} Whether compare is available
+     */
+    canCompareVersions() {
+        const viewerName = getProp(this.options, 'viewer.NAME');
+        const fileVersionId = getProp(
+            this.options,
+            `fileOptions.${this.options.file.id}.${FILE_OPTION_FILE_VERSION_ID}`,
+        );
+        const isDiffActive = !!this.getViewerOption('compareFileVersionId');
+        return COMPARABLE_VIEWER_NAMES.includes(viewerName) && !fileVersionId && !isDiffActive;
+    }
+
+    /**
      * Render controls
      *
      * @return {void}
@@ -263,6 +300,7 @@ class TextBaseViewer extends BaseViewer {
             <TextControls
                 maxScale={ZOOM_MAX}
                 minScale={ZOOM_MIN}
+                onCompareVersionsToggle={this.canCompareVersions() ? this.handleCompareVersionsToggle : undefined}
                 onFullscreenToggle={this.toggleFullscreen}
                 onZoomIn={this.zoomIn}
                 onZoomOut={this.zoomOut}
